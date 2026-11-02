@@ -1,11 +1,12 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { exec, theme, focused, panes, spaces, window } from "herdr";
+import { exec, theme, focused, panes, spaces, window, layout, run, props, settings } from "herdr";
 
 // Pills for the focused terminal's GitHub repo and its branch's PR.
 // The remote is read where the terminal runs (its space's machine);
 // the PR is looked up here with the person's own `gh` login.
 const PR_EVERY = 2 * 60 * 1000;
+const PAD = 10; // right padding, matching the tab bar's
 
 // git@github.com:o/r.git, https://github.com/o/r, ssh://git@github.com/o/r,
 // and ssh host aliases like github.com-work:o/r.
@@ -73,17 +74,29 @@ export default class GithubLink extends View {
       .children(kids);
   }
 
+  // The block hugs its pills so they sit right after the tab bar's own
+  // buttons: resize our layout node to the pills' width (+ right padding).
+  fit(width) {
+    const id = props()?.block ?? "github";
+    const find = (n) => n?.id === id ? n : (n?.children ?? []).map(find).find(Boolean);
+    const node = find(layout());
+    const want = Math.max(0, Math.round(width / (settings().zoom || 1)) + (width > 0 ? PAD : 0));
+    if (node && Math.abs((node.size?.px ?? -1) - want) > 1) run("layout.resize", { id, px: want });
+  }
+
   render(cx) {
     const t = theme();
-    const row = h_flex().size_full().min_w(0).pr(10).gap(3).items_center().justify_end()
-      .bg(t.chrome).border_b(1).border_color(t.border);
+    const pills = h_flex().id("pills").flex_none().h_full().gap(3).items_center()
+      .on_size_change((size, _cx) => this.fit(size.width));
+    const row = (inner = pills) => h_flex().size_full().min_w(0).items_center()
+      .bg(t.chrome).border_b(1).border_color(t.border).child(inner);
     const w = this.where();
-    if (!w) return row;
+    if (!w) return row();
 
     const rkey = `${w.machine ?? ""}|${w.cwd}`;
-    if (!(rkey in this.repos)) { this.lookupRepo(cx, rkey, w); return row; }
+    if (!(rkey in this.repos)) { this.lookupRepo(cx, rkey, w); return row(); }
     const repo = this.repos[rkey];
-    if (!repo) return row;
+    if (!repo) return row();
 
     const repoUrl = `https://github.com/${repo}`;
     let pr = null;
@@ -98,7 +111,7 @@ export default class GithubLink extends View {
       : pr.state === "MERGED" ? t.ansi5
       : t.dim;
 
-    return row
+    return row(pills
       .child(this.pill(t, "gh-repo", repoUrl, repoUrl, [
         svg("mods/github-link/github.svg").size(14).flex_none(),
         div().max_w(160).truncate().child(repo.split("/")[1]),
@@ -106,6 +119,6 @@ export default class GithubLink extends View {
       .when(Boolean(pr), (el) => el.child(this.pill(t, "gh-pr", `${pr.url}${pr.isDraft ? " (draft)" : ` (${pr.state.toLowerCase()})`}`, pr.url, [
         div().size(7).rounded(4).flex_none().bg(dot),
         div().child(`#${pr.number}`),
-      ])));
+      ]))));
   }
 }
